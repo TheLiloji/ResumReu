@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.env
+.env.local
+
+# Data
+data/uploads/*
+data/outputs/*
+data/vector_store/*
+data/models/*
+!data/uploads/.gitkeep
+!data/outputs/.gitkeep
+!data/vector_store/.gitkeep
+!data/models/.gitkeep
+*.db
+*.sqlite
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

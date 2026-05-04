@@ -1,0 +1,32 @@
+[
+  {
+    "term": "Y2",
+    "definition": "Cegid Y2 — ERP destiné aux moyennes et grandes entreprises (gestion commerciale, finance, RH).",
+    "aliases": ["Cegid Y2"],
+    "category": "ERP"
+  },
+  {
+    "term": "XRP Flex",
+    "definition": "Cegid XRP Flex — ERP cloud full-web pour les sociétés de services et de distribution.",
+    "aliases": ["XRP", "XRP-Flex"],
+    "category": "ERP"
+  },
+  {
+    "term": "Loop",
+    "definition": "Cegid Loop — solution pour les experts-comptables (production comptable, fiscale et sociale).",
+    "aliases": ["Cegid Loop"],
+    "category": "Expertise"
+  },
+  {
+    "term": "Talentsoft",
+    "definition": "Cegid Talentsoft — suite RH (gestion des talents, recrutement, formation, performance).",
+    "aliases": ["TalentSoft", "Cegid Talentsoft"],
+    "category": "RH"
+  },
+  {
+    "term": "Retail",
+    "definition": "Cegid Retail — solution omnicanale pour le commerce de détail (caisse, stocks, CRM).",
+    "aliases": ["Cegid Retail"],
+    "category": "Retail"
+  }
+]
