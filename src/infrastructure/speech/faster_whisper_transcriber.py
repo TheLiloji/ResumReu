@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 from functools import lru_cache
 
@@ -68,6 +69,21 @@ class FasterWhisperTranscriber(TranscriberPort):
             )
             for seg in segments_iter
         ]
+
+    def unload(self) -> None:
+        if self._model is None:
+            return
+        logger.info("Unloading Whisper model from VRAM")
+        self._model = None
+        _load_model.cache_clear()
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
 
 @lru_cache(maxsize=2)

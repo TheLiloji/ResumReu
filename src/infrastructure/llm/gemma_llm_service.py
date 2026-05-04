@@ -8,6 +8,7 @@ the layers between the 12 GB VRAM and host RAM as needed.
 
 from __future__ import annotations
 
+import gc
 import logging
 from functools import lru_cache
 
@@ -70,6 +71,17 @@ class GemmaLlmService(LlmPort):
             )
         new_tokens = output_ids[0, inputs["input_ids"].shape[1] :]
         return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+    def unload(self) -> None:
+        if self._model is None and self._tokenizer is None:
+            return
+        logger.info("Unloading LLM '%s' from VRAM", self._settings.model_id)
+        self._model = None
+        self._tokenizer = None
+        _load_model.cache_clear()
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 @lru_cache(maxsize=1)

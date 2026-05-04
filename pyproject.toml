@@ -20,7 +20,7 @@ dependencies = [
 
   # Audio / speech
   "faster-whisper>=1.0.3",
-  "pyannote.audio>=3.3.1",
+  "pyannote.audio>=3.0,<3.1",
   "torchaudio>=2.3",
   "soundfile>=0.12",
   "pydub>=0.25",
@@ -34,7 +34,7 @@ dependencies = [
   "protobuf>=4.25",
 
   # RAG
-  "sentence-transformers>=3.0",
+  "sentence-transformers>=3.0,<4",
   "chromadb>=0.5",
   "langchain>=0.3",
   "langchain-community>=0.3",

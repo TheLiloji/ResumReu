@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 from functools import lru_cache
 
@@ -45,6 +46,21 @@ class SentenceTransformerEmbedder(EmbedderPort):
     @property
     def dimension(self) -> int:
         return self._ensure_model().get_sentence_embedding_dimension()
+
+    def unload(self) -> None:
+        if self._model is None:
+            return
+        logger.info("Unloading embedder '%s' from VRAM", self._settings.model_id)
+        self._model = None
+        _load.cache_clear()
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
 
 @lru_cache(maxsize=2)

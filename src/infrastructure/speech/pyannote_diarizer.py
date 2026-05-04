@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 from functools import lru_cache
 
@@ -48,36 +49,46 @@ class PyannoteDiarizer(DiarizerPort):
         return self._pipeline
 
     def diarize(self, audio: AudioFile) -> list[SpeakerTurn]:
-    pipeline = self._ensure_pipeline()
+        pipeline = self._ensure_pipeline()
 
-    output = pipeline(str(audio.path))
+        output = pipeline(str(audio.path))
 
-    # pyannote.audio < 4 retournait directement une Annotation.
-    # pyannote.audio 4.x retourne un DiarizeOutput.
-    #
-    # Pour Whisper, on préfère exclusive_speaker_diarization si dispo :
-    # les segments sont plus propres et non chevauchants.
-    diarization = getattr(output, "exclusive_speaker_diarization", None)
+        # pyannote.audio < 4 retournait directement une Annotation.
+        # pyannote.audio 4.x retourne un DiarizeOutput.
+        #
+        # Pour Whisper, on préfère exclusive_speaker_diarization si dispo :
+        # les segments sont plus propres et non chevauchants.
+        diarization = getattr(output, "exclusive_speaker_diarization", None)
 
-    if diarization is None:
-        diarization = getattr(output, "speaker_diarization", None)
+        if diarization is None:
+            diarization = getattr(output, "speaker_diarization", None)
 
-    if diarization is None:
-        # fallback ancienne API : output est déjà une Annotation
-        diarization = output
+        if diarization is None:
+            # fallback ancienne API : output est déjà une Annotation
+            diarization = output
 
-    speaker_turns: list[SpeakerTurn] = []
+        speaker_turns: list[SpeakerTurn] = []
 
-    for turn, _track, speaker in diarization.itertracks(yield_label=True):
-        speaker_turns.append(
-            SpeakerTurn(
-                speaker_id=str(speaker),
-                start_seconds=float(turn.start),
-                end_seconds=float(turn.end),
+        for turn, _track, speaker in diarization.itertracks(yield_label=True):
+            speaker_turns.append(
+                SpeakerTurn(
+                    speaker_id=str(speaker),
+                    start_seconds=float(turn.start),
+                    end_seconds=float(turn.end),
+                )
             )
-        )
 
-    return speaker_turns
+        return speaker_turns
+
+    def unload(self) -> None:
+        if self._pipeline is None:
+            return
+        logger.info("Unloading pyannote pipeline from VRAM")
+        self._pipeline = None
+        _load_pipeline.cache_clear()
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 @lru_cache(maxsize=1)
