@@ -21,12 +21,13 @@ dependencies = [
   # Audio / speech
   "faster-whisper>=1.0.3",
   "pyannote.audio>=4.0,<5",
-  "torchaudio>=2.8",
+  "torchaudio>=2.11,<2.12",
   "soundfile>=0.12",
   "pydub>=0.25",
 
   # LLM stack (HuggingFace)
-  "torch>=2.8",
+  "torch>=2.11,<2.12",
+  "torchvision>=0.26,<0.27",
   "transformers>=5.5,<6",
   "accelerate>=1.1",
   "bitsandbytes>=0.49",
