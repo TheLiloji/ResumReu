@@ -51,7 +51,7 @@ class WhisperSettings(_Base):
 
 class PyannoteSettings(_Base):
     pipeline: str = Field(
-        default="pyannote/speaker-diarization-3.1", alias="PYANNOTE_PIPELINE"
+        default="pyannote/speaker-diarization-community-1", alias="PYANNOTE_PIPELINE"
     )
     device: str = Field(default="cuda", alias="PYANNOTE_DEVICE")
 

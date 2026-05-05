@@ -9,7 +9,7 @@ Local meeting summarization and Q&A platform.
 | ASR | `faster-whisper` (HuggingFace) |
 | Diarization | `pyannote.audio` (HuggingFace) |
 | LLM | `google/gemma-4-26B-A4B-it` via `transformers` + `bitsandbytes` |
-| Embeddings | `sentence-transformers` (multilingual) |
+| Embeddings | HuggingFace `transformers` encoder (multilingual) |
 | Vector store | ChromaDB |
 | API | FastAPI |
 | Workers | Celery + Redis |
@@ -66,10 +66,9 @@ Generate a **classic Read token** at <https://huggingface.co/settings/tokens> (t
 Then accept the licence on each of these gated repos with the **same** account that owns the token:
 
 - [google/gemma-4-26B-A4B-it](https://huggingface.co/google/gemma-4-26B-A4B-it) — *Acknowledge license* (instant)
-- [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) — short form (instant)
-- [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) — short form (instant, internal dependency of the pipeline above; commonly forgotten)
+- [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) — short form (instant)
 
-> A fine-grained token works only if it explicitly grants *Read access to public gated repos* and lists the three repos above. The classic Read token avoids this trap.
+> A fine-grained token works only if it explicitly grants *Read access to public gated repos* and lists the two repos above. The classic Read token avoids this trap.
 
 ### 4. Disk space
 
@@ -179,7 +178,7 @@ pytest
 
 | Symptom | Likely cause |
 | --- | --- |
-| `gated repo access denied` on first pipeline run | One of the 3 HF licences not accepted (most often `pyannote/segmentation-3.0`) |
+| `gated repo access denied` on first pipeline run | One of the HF licences above was not accepted with the account that owns `HF_TOKEN` |
 | `CUBLAS_STATUS_NOT_SUPPORTED` from Whisper | Don't switch `WHISPER_COMPUTE_TYPE` to pure `float16` on Ada/Blackwell — keep `int8_float16` |
 | API returns 200 but pipeline never reaches `completed` | Check `docker compose logs worker` — the worker likely OOM'd; reduce `LLM_MAX_NEW_TOKENS` or downgrade the LLM |
 | `nvidia-smi` works on host but not in container | Update Docker Desktop to ≥ 4.30 and the NVIDIA driver to ≥ 570; restart Docker |
