@@ -23,6 +23,7 @@ services:
       DATABASE_URL: sqlite:////app/data/resumreu.db
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      LLM_OFFLOAD_FOLDER: /cache/torch/llm-offload
     ports:
       - "8000:8000"
     volumes:
@@ -60,6 +61,7 @@ services:
       DATABASE_URL: sqlite:////app/data/resumreu.db
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      LLM_OFFLOAD_FOLDER: /cache/torch/llm-offload
     volumes:
       - ./data:/app/data
       - hf_cache:/cache/huggingface

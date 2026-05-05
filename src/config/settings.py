@@ -57,10 +57,16 @@ class PyannoteSettings(_Base):
 
 
 class LlmSettings(_Base):
-    model_id: str = Field(default="google/gemma-4-26B-A4B-it", alias="LLM_MODEL_ID")
+    model_id: str = Field(default="google/gemma-4-E4B-it", alias="LLM_MODEL_ID")
     load_in_4bit: bool = Field(default=True, alias="LLM_LOAD_IN_4BIT")
-    device_map: str = Field(default="auto", alias="LLM_DEVICE_MAP")
-    max_new_tokens: int = Field(default=2048, alias="LLM_MAX_NEW_TOKENS")
+    device_map: str = Field(default="cuda", alias="LLM_DEVICE_MAP")
+    cpu_offload: bool = Field(default=False, alias="LLM_CPU_OFFLOAD")
+    max_gpu_memory: str | None = Field(default="6GiB", alias="LLM_MAX_GPU_MEMORY")
+    max_cpu_memory: str | None = Field(default="24GiB", alias="LLM_MAX_CPU_MEMORY")
+    offload_folder: Path = Field(
+        default=Path("./data/models/llm-offload"), alias="LLM_OFFLOAD_FOLDER"
+    )
+    max_new_tokens: int = Field(default=512, alias="LLM_MAX_NEW_TOKENS")
     temperature: float = Field(default=0.3, alias="LLM_TEMPERATURE")
 
 

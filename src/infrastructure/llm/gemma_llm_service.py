@@ -1,16 +1,18 @@
-"""LlmPort implementation for Gemma 4 26B-A4B (MoE) via HuggingFace transformers.
+"""LlmPort implementation for Gemma 4 via HuggingFace transformers.
 
-The 26B-A4B model is a Mixture-of-Experts: 26B total parameters but only 4B
-are active per token. With 4-bit quantization (bitsandbytes) the full weights
-fit in ~12-13 GB; combined with `device_map="auto"`, transformers spreads
-the layers between the 12 GB VRAM and host RAM as needed.
+The default E4B model is still too large for an 8 GB GPU without careful
+placement. The default profile keeps the 4-bit model on the GPU to avoid the
+current Accelerate/bitsandbytes split-device Params4bit issue. CPU offload stays
+available as an explicit opt-in for environments where that stack works.
 """
 
 from __future__ import annotations
 
 import gc
 import logging
+import time
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -45,6 +47,10 @@ class GemmaLlmService(LlmPort):
                 model_id=self._settings.model_id,
                 load_in_4bit=self._settings.load_in_4bit,
                 device_map=self._settings.device_map,
+                cpu_offload=self._settings.cpu_offload,
+                max_gpu_memory=self._settings.max_gpu_memory,
+                max_cpu_memory=self._settings.max_cpu_memory,
+                offload_folder=self._settings.offload_folder,
                 hf_token=self._hf.token,
             )
         return self._model, self._processor
@@ -66,21 +72,53 @@ class GemmaLlmService(LlmPort):
         )
         inputs = inputs.to(model.device)
         input_len = inputs["input_ids"].shape[-1]
+        effective_temperature = (
+            self._settings.temperature if temperature is None else temperature
+        )
+        generation_kwargs: dict[str, Any] = {
+            **inputs,
+            "max_new_tokens": max_new_tokens or self._settings.max_new_tokens,
+            "do_sample": effective_temperature > 0.0,
+            "pad_token_id": _eos_token_id(processor),
+        }
+        if effective_temperature > 0.0:
+            generation_kwargs["temperature"] = effective_temperature
 
+        logger.info(
+            "Starting LLM generation (model=%s, input_tokens=%s, max_new_tokens=%s, "
+            "temperature=%.2f, do_sample=%s, device=%s)",
+            self._settings.model_id,
+            input_len,
+            generation_kwargs["max_new_tokens"],
+            effective_temperature,
+            generation_kwargs["do_sample"],
+            model.device,
+        )
+        started_at = time.perf_counter()
         with torch.inference_mode():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens or self._settings.max_new_tokens,
-                temperature=temperature or self._settings.temperature,
-                do_sample=(temperature or self._settings.temperature) > 0.0,
-                pad_token_id=_eos_token_id(processor),
-            )
+            output_ids = model.generate(**generation_kwargs)
+        elapsed_s = time.perf_counter() - started_at
         new_tokens = output_ids[0, input_len:]
         response = processor.decode(new_tokens, skip_special_tokens=False)
         parse_response = getattr(processor, "parse_response", None)
+        logger.info(
+            "Finished LLM generation (model=%s, duration_s=%.2f, output_tokens=%s, "
+            "raw_chars=%s)",
+            self._settings.model_id,
+            elapsed_s,
+            new_tokens.shape[-1],
+            len(response),
+        )
+        logger.debug("LLM generation raw response preview: %r", _preview(response))
         if callable(parse_response):
-            return str(parse_response(response)).strip()
-        return processor.decode(new_tokens, skip_special_tokens=True).strip()
+            parsed_response = str(parse_response(response)).strip()
+            logger.debug(
+                "LLM parsed response preview: %r", _preview(parsed_response)
+            )
+            return parsed_response
+        decoded = processor.decode(new_tokens, skip_special_tokens=True).strip()
+        logger.debug("LLM decoded response preview: %r", _preview(decoded))
+        return decoded
 
     def unload(self) -> None:
         if self._model is None and self._processor is None:
@@ -96,8 +134,17 @@ class GemmaLlmService(LlmPort):
 
 @lru_cache(maxsize=1)
 def _load_model(
-    model_id: str, load_in_4bit: bool, device_map: str, hf_token: str | None
+    model_id: str,
+    load_in_4bit: bool,
+    device_map: str,
+    cpu_offload: bool,
+    max_gpu_memory: str | None,
+    max_cpu_memory: str | None,
+    offload_folder: Path,
+    hf_token: str | None,
 ) -> tuple[Any, AutoModelForCausalLM]:
+    resolved_device_map = _device_map(device_map)
+    use_cpu_offload = cpu_offload and not _is_single_gpu_map(resolved_device_map)
     quantization_config = None
     if load_in_4bit:
         quantization_config = BitsAndBytesConfig(
@@ -105,19 +152,61 @@ def _load_model(
             bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
+            llm_int8_enable_fp32_cpu_offload=use_cpu_offload,
         )
     processor = AutoProcessor.from_pretrained(model_id, token=hf_token)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        quantization_config=quantization_config,
-        device_map=device_map,
-        dtype=torch.float16,
-        token=hf_token,
-    )
+    model_kwargs: dict[str, Any] = {
+        "quantization_config": quantization_config,
+        "device_map": resolved_device_map,
+        "dtype": torch.float16,
+        "token": hf_token,
+    }
+    if use_cpu_offload:
+        offload_folder.mkdir(parents=True, exist_ok=True)
+        model_kwargs.update(
+            max_memory=_max_memory(max_gpu_memory, max_cpu_memory),
+            offload_folder=str(offload_folder),
+            offload_state_dict=True,
+        )
+    model = AutoModelForCausalLM.from_pretrained(model_id, **model_kwargs)
     model.eval()
+    logger.info(
+        "Loaded LLM '%s' with device map: %s",
+        model_id,
+        getattr(model, "hf_device_map", None),
+    )
     return processor, model
+
+
+def _device_map(device_map: str) -> str | dict[str, int]:
+    normalized = device_map.strip().lower()
+    if normalized in {"cuda", "gpu", "all-gpu", "all_gpu", "0"}:
+        return {"": 0}
+    return device_map
+
+
+def _is_single_gpu_map(device_map: str | dict[str, int]) -> bool:
+    return isinstance(device_map, dict) and device_map == {"": 0}
+
+
+def _max_memory(
+    max_gpu_memory: str | None, max_cpu_memory: str | None
+) -> dict[Any, str] | None:
+    max_memory: dict[Any, str] = {}
+    if max_gpu_memory and torch.cuda.is_available():
+        max_memory[0] = max_gpu_memory
+    if max_cpu_memory:
+        max_memory["cpu"] = max_cpu_memory
+    return max_memory or None
 
 
 def _eos_token_id(processor: Any) -> int | None:
     tokenizer = getattr(processor, "tokenizer", None)
     return getattr(tokenizer, "eos_token_id", None)
+
+
+def _preview(text: str, limit: int = 300) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit]}..."

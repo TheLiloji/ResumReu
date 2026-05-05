@@ -8,7 +8,7 @@ Local meeting summarization and Q&A platform.
 |-------|---------|
 | ASR | `faster-whisper` (HuggingFace) |
 | Diarization | `pyannote.audio` (HuggingFace) |
-| LLM | `google/gemma-4-26B-A4B-it` via `transformers` + `bitsandbytes` |
+| LLM | `google/gemma-4-E4B-it` via `transformers` + `bitsandbytes` |
 | Embeddings | HuggingFace `transformers` encoder (multilingual) |
 | Vector store | ChromaDB |
 | API | FastAPI |
@@ -16,7 +16,7 @@ Local meeting summarization and Q&A platform.
 | UI | Streamlit |
 | Docs | python-docx |
 
-Hardware target: NVIDIA RTX 5070 (12 GB VRAM) + 32 GB RAM.
+Hardware target: NVIDIA RTX 5070 (8 GB VRAM) + 32 GB RAM.
 
 ## Architecture
 
@@ -31,7 +31,7 @@ api / workers   ← delivery layers (FastAPI, Celery)
 
 Dependency rule: outer layers depend on inner layers, never the reverse.
 
-The pipeline (audio → transcript → summary → docx → index) runs sequentially in a single Celery task. Models are unloaded between steps to keep VRAM under the 12 GB budget — see `unload()` on each adapter and the wiring in [src/workers/tasks/audio_processing_task.py](src/workers/tasks/audio_processing_task.py).
+The pipeline (audio → transcript → summary → docx → index) runs sequentially in a single Celery task. Models are unloaded between steps to keep VRAM under the 8 GB budget; the LLM uses 4-bit quantization and is kept on GPU by default to avoid current split-device `bitsandbytes` issues — see `unload()` on each adapter and the wiring in [src/workers/tasks/audio_processing_task.py](src/workers/tasks/audio_processing_task.py).
 
 ---
 
@@ -65,14 +65,14 @@ Generate a **classic Read token** at <https://huggingface.co/settings/tokens> (t
 
 Then accept the licence on each of these gated repos with the **same** account that owns the token:
 
-- [google/gemma-4-26B-A4B-it](https://huggingface.co/google/gemma-4-26B-A4B-it) — *Acknowledge license* (instant)
+- [google/gemma-4-E4B-it](https://huggingface.co/google/gemma-4-E4B-it) — *Acknowledge license* (instant)
 - [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) — short form (instant)
 
 > A fine-grained token works only if it explicitly grants *Read access to public gated repos* and lists the two repos above. The classic Read token avoids this trap.
 
 ### 4. Disk space
 
-~30 GB free (image ~6–8 GB + HuggingFace model cache ~16 GB for Gemma + ~3 GB Whisper + smaller).
+~35 GB free for a fresh E4B setup (image ~6–8 GB + HuggingFace model cache for Gemma/Whisper/pyannote). Allow more if you experiment with larger Gemma variants, because the persisted `hf_cache` volume keeps previous downloads.
 
 ---
 
@@ -121,7 +121,7 @@ The very first `POST /meetings` triggers the model downloads into the persisted 
 
 - Whisper large-v3 (~3 GB)
 - pyannote pipeline (~200 MB)
-- Gemma 4 26B-A4B (~16 GB)
+- Gemma 4 E4B (several GB; cached in `hf_cache`)
 - mpnet embedder (~500 MB)
 
 → 5–30 minutes depending on bandwidth, **once**. Subsequent runs reuse the cache.
@@ -176,10 +176,13 @@ pytest
 
 ## Troubleshooting
 
+The detailed GPU/ML troubleshooting log is in [docs/ml-troubleshooting.md](docs/ml-troubleshooting.md).
+
 | Symptom | Likely cause |
 | --- | --- |
 | `gated repo access denied` on first pipeline run | One of the HF licences above was not accepted with the account that owns `HF_TOKEN` |
 | `CUBLAS_STATUS_NOT_SUPPORTED` from Whisper | Don't switch `WHISPER_COMPUTE_TYPE` to pure `float16` on Ada/Blackwell — keep `int8_float16` |
 | API returns 200 but pipeline never reaches `completed` | Check `docker compose logs worker` — the worker likely OOM'd; reduce `LLM_MAX_NEW_TOKENS` or downgrade the LLM |
+| `Some modules are dispatched on the CPU or the disk` while loading Gemma | Use `LLM_DEVICE_MAP=cuda` and `LLM_CPU_OFFLOAD=false` for E4B on 8 GB VRAM; if it OOMs, lower `LLM_MAX_NEW_TOKENS` or switch to E2B |
 | `nvidia-smi` works on host but not in container | Update Docker Desktop to ≥ 4.30 and the NVIDIA driver to ≥ 570; restart Docker |
 | Streamlit can't reach API | Confirm `API_URL=http://localhost:8000` in the env where Streamlit runs |
