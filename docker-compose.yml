@@ -28,6 +28,7 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+      - ./prompts:/app/prompts:ro
       - hf_cache:/cache/huggingface
       - torch_cache:/cache/torch
     depends_on:
@@ -64,6 +65,7 @@ services:
       LLM_OFFLOAD_FOLDER: /cache/torch/llm-offload
     volumes:
       - ./data:/app/data
+      - ./prompts:/app/prompts:ro
       - hf_cache:/cache/huggingface
       - torch_cache:/cache/torch
     depends_on:

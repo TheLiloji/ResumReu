@@ -4,6 +4,10 @@ The default E4B model is still too large for an 8 GB GPU without careful
 placement. The default profile keeps the 4-bit model on the GPU to avoid the
 current Accelerate/bitsandbytes split-device Params4bit issue. CPU offload stays
 available as an explicit opt-in for environments where that stack works.
+
+Structured output uses Outlines (`outlines.from_transformers`) to constrain
+generation to a Pydantic schema — this guarantees the JSON conforms to the
+schema and removes the need for defensive parsing in callers.
 """
 
 from __future__ import annotations
@@ -13,15 +17,20 @@ import logging
 import time
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
+import outlines
 import torch
+from outlines.inputs import Chat
+from pydantic import BaseModel
 from transformers import AutoModelForCausalLM, AutoProcessor, BitsAndBytesConfig
 
 from src.application.ports.llm_port import ChatMessage, LlmPort
 from src.config.settings import HuggingFaceSettings, LlmSettings
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class GemmaLlmService(LlmPort):
@@ -34,6 +43,7 @@ class GemmaLlmService(LlmPort):
         self._hf = huggingface_settings
         self._model: AutoModelForCausalLM | None = None
         self._processor: Any | None = None
+        self._outlines_model: Any | None = None
 
     def _ensure_loaded(self) -> tuple[AutoModelForCausalLM, Any]:
         if self._model is None or self._processor is None:
@@ -54,6 +64,17 @@ class GemmaLlmService(LlmPort):
                 hf_token=self._hf.token,
             )
         return self._model, self._processor
+
+    def _ensure_outlines_model(self) -> Any:
+        model, processor = self._ensure_loaded()
+        if self._outlines_model is None:
+            tokenizer = getattr(processor, "tokenizer", processor)
+            logger.info(
+                "Wrapping LLM '%s' with Outlines for constrained decoding",
+                self._settings.model_id,
+            )
+            self._outlines_model = outlines.from_transformers(model, tokenizer)
+        return self._outlines_model
 
     def complete(
         self,
@@ -120,12 +141,59 @@ class GemmaLlmService(LlmPort):
         logger.debug("LLM decoded response preview: %r", _preview(decoded))
         return decoded
 
+    def complete_structured(
+        self,
+        messages: list[ChatMessage],
+        output_schema: type[T],
+        max_new_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> T:
+        outlines_model = self._ensure_outlines_model()
+        chat = Chat([{"role": m.role, "content": m.content} for m in messages])
+
+        effective_temperature = (
+            self._settings.temperature if temperature is None else temperature
+        )
+        effective_max_new_tokens = max_new_tokens or self._settings.max_new_tokens
+        generation_kwargs: dict[str, Any] = {
+            "max_new_tokens": effective_max_new_tokens,
+            "do_sample": effective_temperature > 0.0,
+        }
+        if effective_temperature > 0.0:
+            generation_kwargs["temperature"] = effective_temperature
+
+        logger.info(
+            "Starting constrained LLM generation (model=%s, schema=%s, "
+            "max_new_tokens=%s, temperature=%.2f, do_sample=%s)",
+            self._settings.model_id,
+            output_schema.__name__,
+            effective_max_new_tokens,
+            effective_temperature,
+            generation_kwargs["do_sample"],
+        )
+        started_at = time.perf_counter()
+        result = outlines_model(chat, output_type=output_schema, **generation_kwargs)
+        elapsed_s = time.perf_counter() - started_at
+        logger.info(
+            "Finished constrained LLM generation (model=%s, schema=%s, duration_s=%.2f)",
+            self._settings.model_id,
+            output_schema.__name__,
+            elapsed_s,
+        )
+
+        if isinstance(result, output_schema):
+            return result
+        # Some Outlines paths return a JSON string for BaseModel output_type;
+        # validate it through Pydantic to honor `Field` semantic constraints.
+        return output_schema.model_validate_json(result)
+
     def unload(self) -> None:
         if self._model is None and self._processor is None:
             return
         logger.info("Unloading LLM '%s' from VRAM", self._settings.model_id)
         self._model = None
         self._processor = None
+        self._outlines_model = None
         _load_model.cache_clear()
         gc.collect()
         if torch.cuda.is_available():

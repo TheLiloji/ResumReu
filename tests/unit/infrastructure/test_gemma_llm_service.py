@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import torch
+from pydantic import BaseModel
 
 from src.application.ports.llm_port import ChatMessage
 from src.config.settings import HuggingFaceSettings, LlmSettings
@@ -179,3 +180,99 @@ def test_complete_uses_processor_chat_template(
     assert calls["parsed_response"] == "<start>ok</start>"
     assert "Starting LLM generation" in caplog.text
     assert "Finished LLM generation" in caplog.text
+
+
+class _FakeSchema(BaseModel):
+    summary: str
+    items: list[str]
+
+
+def test_complete_structured_invokes_outlines_with_schema(
+    monkeypatch: Any, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="src.infrastructure.llm.gemma_llm_service")
+
+    fake_tokenizer = MagicMock(name="tokenizer")
+    fake_processor = MagicMock(name="processor")
+    fake_processor.tokenizer = fake_tokenizer
+    fake_model = MagicMock(name="model")
+    fake_model.device = torch.device("cpu")
+    monkeypatch.setattr(
+        gemma_llm_service,
+        "_load_model",
+        MagicMock(return_value=(fake_processor, fake_model)),
+    )
+
+    expected = _FakeSchema(summary="ok", items=["a", "b"])
+    fake_outlines_model = MagicMock(name="outlines_model", return_value=expected)
+    from_transformers = MagicMock(return_value=fake_outlines_model)
+    monkeypatch.setattr(gemma_llm_service.outlines, "from_transformers", from_transformers)
+
+    captured_chat: dict[str, Any] = {}
+
+    class FakeChat:
+        def __init__(self, messages: list[dict[str, str]]) -> None:
+            captured_chat["messages"] = messages
+
+    monkeypatch.setattr(gemma_llm_service, "Chat", FakeChat)
+
+    settings = LlmSettings(
+        LLM_MODEL_ID="google/gemma-4-E4B-it",
+        LLM_MAX_NEW_TOKENS=128,
+        LLM_OFFLOAD_FOLDER=tmp_path,
+    )
+    service = gemma_llm_service.GemmaLlmService(settings, HuggingFaceSettings())
+
+    result = service.complete_structured(
+        [
+            ChatMessage(role="system", content="Réponds en JSON."),
+            ChatMessage(role="user", content="Synthèse"),
+        ],
+        output_schema=_FakeSchema,
+        temperature=0.0,
+    )
+
+    assert result is expected
+    from_transformers.assert_called_once_with(fake_model, fake_tokenizer)
+    assert captured_chat["messages"] == [
+        {"role": "system", "content": "Réponds en JSON."},
+        {"role": "user", "content": "Synthèse"},
+    ]
+    call = fake_outlines_model.call_args
+    assert call.kwargs["output_type"] is _FakeSchema
+    assert call.kwargs["max_new_tokens"] == 128
+    assert call.kwargs["do_sample"] is False
+    assert "temperature" not in call.kwargs
+    assert "Starting constrained LLM generation" in caplog.text
+    assert "Finished constrained LLM generation" in caplog.text
+
+
+def test_complete_structured_caches_outlines_wrapper_across_calls(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    fake_processor = MagicMock(name="processor")
+    fake_processor.tokenizer = MagicMock(name="tokenizer")
+    fake_model = MagicMock(name="model")
+    fake_model.device = torch.device("cpu")
+    monkeypatch.setattr(
+        gemma_llm_service,
+        "_load_model",
+        MagicMock(return_value=(fake_processor, fake_model)),
+    )
+
+    fake_outlines_model = MagicMock(return_value=_FakeSchema(summary="x", items=[]))
+    from_transformers = MagicMock(return_value=fake_outlines_model)
+    monkeypatch.setattr(gemma_llm_service.outlines, "from_transformers", from_transformers)
+    monkeypatch.setattr(gemma_llm_service, "Chat", lambda messages: messages)
+
+    settings = LlmSettings(LLM_OFFLOAD_FOLDER=tmp_path)
+    service = gemma_llm_service.GemmaLlmService(settings, HuggingFaceSettings())
+
+    service.complete_structured(
+        [ChatMessage(role="user", content="hi")], output_schema=_FakeSchema
+    )
+    service.complete_structured(
+        [ChatMessage(role="user", content="hi again")], output_schema=_FakeSchema
+    )
+
+    assert from_transformers.call_count == 1

@@ -186,3 +186,21 @@ The detailed GPU/ML troubleshooting log is in [docs/ml-troubleshooting.md](docs/
 | `Some modules are dispatched on the CPU or the disk` while loading Gemma | Use `LLM_DEVICE_MAP=cuda` and `LLM_CPU_OFFLOAD=false` for E4B on 8 GB VRAM; if it OOMs, lower `LLM_MAX_NEW_TOKENS` or switch to E2B |
 | `nvidia-smi` works on host but not in container | Update Docker Desktop to ≥ 4.30 and the NVIDIA driver to ≥ 570; restart Docker |
 | Streamlit can't reach API | Confirm `API_URL=http://localhost:8000` in the env where Streamlit runs |
+
+
+## Améliorations futures
+
+- Amélioration de la pipeline de retranscription et de diarisation :
+  - Tester WhisperX (Whisper + alignement de mots) pour une meilleure précision temporelle.
+  - Expérimenter avec d’autres pipelines pyannote pour la diarisation, ou
+  - Tester avec VibeVoice-ASR-HF qui combine diarisation + ASR, pour voir si la jointure améliore la précision globale.
+- Amélioration de la synthèse de compte-rendu :
+  - Tester d’autres LLMs plus petits et mieux adaptés à la synthèse.
+  - Expérimenter avec des prompts plus sophistiqués, ou une approche en deux étapes (ex. extraire d’abord les points clés, puis synthétiser à partir de ces points).
+- Amélioration du rag et de la recherche d’information :
+  - Tester d’autres encodeurs d’embeddings, ou des modèles spécialisés dans les données conversationnelles.
+  - Expérimenter avec des techniques de réduction de dimensionnalité pour optimiser les performances de ChromaDB.
+- Amélioration de l’interface utilisateur :
+  - Ajouter une visualisation de la transcription avec les segments temporels et les locuteurs identifiés.
+  - Permettre de donner un nom a chaque speaker identifié
+  - Permettre le téléchargement du compte-rendu au format Word ou PDF.

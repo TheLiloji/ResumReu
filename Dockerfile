@@ -5,11 +5,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HOME=/cache/huggingface \
     TORCH_HOME=/cache/torch \
+    TORCH_COMPILE_DISABLE=1 \
+    TORCHDYNAMO_DISABLE=1 \
     DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3.11 python3.11-venv python3-pip \
+        python3.11 python3.11-venv python3-pip python3.11-dev \
         libpython3.11 ffmpeg libsndfile1 git curl \
+        build-essential \
     && ln -sf /usr/bin/python3.11 /usr/bin/python \
     && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
     && rm -rf /var/lib/apt/lists/*
@@ -18,6 +21,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY src ./src
+COPY prompts ./prompts
 
 RUN pip install --upgrade pip setuptools wheel
 

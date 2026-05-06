@@ -1,7 +1,7 @@
 """Dependency and default-configuration contracts for the ML stack."""
 
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 from src.config.settings import EmbeddingSettings, LlmSettings, PyannoteSettings
 
@@ -29,6 +29,24 @@ def test_transformers_stack_supports_gemma_4() -> None:
     assert "accelerate>=1.1" in deps
     assert "bitsandbytes>=0.49" in deps
     assert "sentencepiece>=0.2" in deps
+    assert "outlines>=1.2.13" in deps
+
+
+def test_docker_image_keeps_triton_build_toolchain() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "python3.11-dev" in dockerfile
+    assert "build-essential" in dockerfile
+    assert "TORCH_COMPILE_DISABLE=1" in dockerfile
+    assert "TORCHDYNAMO_DISABLE=1" in dockerfile
+
+
+def test_worker_uses_cuda_safe_celery_pool() -> None:
+    entrypoint = (ROOT / "docker" / "entrypoint-worker.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--pool=solo" in entrypoint
 
 
 def test_removed_packages_do_not_reenter_dependency_set() -> None:

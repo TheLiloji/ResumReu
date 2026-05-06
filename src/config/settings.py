@@ -68,6 +68,10 @@ class LlmSettings(_Base):
     )
     max_new_tokens: int = Field(default=512, alias="LLM_MAX_NEW_TOKENS")
     temperature: float = Field(default=0.3, alias="LLM_TEMPERATURE")
+    summary_prompt_file: Path = Field(
+        default=Path("./prompts/summary_system.fr.txt"),
+        alias="LLM_SUMMARY_PROMPT_FILE",
+    )
 
 
 class EmbeddingSettings(_Base):

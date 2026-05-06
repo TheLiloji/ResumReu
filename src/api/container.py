@@ -47,6 +47,11 @@ class Container:
         Base.metadata.create_all(self._engine)
         self._session_factory = make_session_factory(self._engine)
 
+        # Prompts (read eagerly so a missing file fails at boot, not on first call)
+        self.summary_system_prompt = settings.llm.summary_prompt_file.read_text(
+            encoding="utf-8"
+        )
+
         # Repositories
         self.meeting_repo = SqliteMeetingRepository(self._session_factory)
         self.transcript_repo = SqliteTranscriptRepository(self._session_factory)
@@ -84,6 +89,7 @@ class Container:
             meetings=self.meeting_repo,
             transcripts=self.transcript_repo,
             glossary_repo=self.glossary_repo,
+            summary_system_prompt=self.summary_system_prompt,
         )
 
     def generate_document_use_case(self) -> GenerateDocumentUseCase:
